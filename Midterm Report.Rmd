@@ -1,0 +1,133 @@
+---
+title: "Shot Chart Takeaways"
+author: "Ben Ellingworth"
+date: "3/29/2022"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+#devtools::install_github("abresler/nbastatR")
+library(nbastatR)
+library(hexbin)
+library(lubridate)
+library(gganimate)
+library(magick)
+Tpups2022 <-teams_shots(teams = "Minnesota Timberwolves", seasons = 2022)%>%
+   select(namePlayer, yearSeason, zoneRange,locationX, locationY, slugZone, typeShot, isShotAttempted, isShotMade, distanceShot)
+Tpups2012 <- teams_shots(teams = "Minnesota Timberwolves", seasons = 2012)%>%
+   select(namePlayer, yearSeason, zoneRange,locationX, locationY, slugZone, typeShot, isShotAttempted, isShotMade, distanceShot)
+Tpups2002 <- teams_shots(teams = "Minnesota Timberwolves", seasons = 2002)%>%
+   select(namePlayer, yearSeason, zoneRange,locationX, locationY, slugZone, typeShot, isShotAttempted, isShotMade, distanceShot)
+
+Tpups <- full_join(Tpups2002,Tpups2012)
+Tpups2 <- full_join(Tpups, Tpups2022)
+Tpups2 
+# Here is where we start to clean up the data and add an extra column based on our purpose for the shot chart. For this specific shot chart, I wanted to see the fg percentage from each zone on the floor to get a more accurate report of our 2022 season. So first, I took the data gathered from the step before and grouped it by zoneRange first to group shots in similar distances together. Next, I grouped the new data by the zone of these shots using slugZone, This took shots of similar distance and groups them as either from the left wing, center, right wing, or either corner. Third, I separated the type of shot (2pt or 3pt) to help specify the close shots between long 2pt and short 3pt shots. Lastly, once everything is grouped with these 3 specific variables, I used the mutate function to create a column that gives the fg% from these specifically grouped zones. I did this by taking the sum of the isShotMade variable and dividing it by the isShotAttempted. This is basically a "mean" function that will show up later. Finally once this is finished we can get to the final part of plotting the data. 
+madeShot2 <- Tpups2 %>%
+   group_by(yearSeason,zoneRange,slugZone,typeShot)%>%
+mutate(fgPercentage = sum(isShotMade)/sum(isShotAttempted)*100)
+
+# This is where we use the data, cleaned and manipulated above, to create our shot chart. First we must identify a name for it, then call ggplot() with our data we want to use inside. This gives us our blank canvas to add to it whatever we like. Notice I used the the data set we created with our new fg% in it. This is essential to get this project to work. 
+shotChart <- ggplot(madeShot2) +
+   #Next I used stat_summary_hex to help bin the points into hexagons rather than geom_point. Geom_point has too many points and is difficult to draw conclusions from, so binning the points is essential. Here is where we define our x,y,z variable we want to use. Our x and y variables are the respective locations found in our data above that plot the specific shots where they actually were on the floor. The z however, is what we want our color to be based on. For this example, we wanted to see the difference in FG% at different parts of the court so I set the z to be = to fgPercentage. The last part was specify what function we wanted to use for these points. As mentioned before, the FG% is a mean function so I specified it in quotes and decided how many bins we wanted to use. 
+   stat_summary_hex(aes(x = locationX, y = locationY, z = fgPercentage),fun = "mean", bins = 15)+
+# Here is where we can decide the colors. Make sure to pick 2 colors that are opposite so the viewers can see the differences between areas.  
+scale_fill_gradient(high = "green", low = "darkblue", "FG Percentage %")+
+   #Here I used xlab and ylab to label the axis. I chose baseline and sideline because that will show the viewers where on the court is is. I also named the title the year to make the chart look better and give an easy reference for the viewers to look back at. I did this by a simple ggtitle() call
+   xlab("Baseline") +
+   ylab("Sideline") +
+   ggtitle("Minnesota Timberwolves Shot Chart")+
+   facet_wrap(~yearSeason)+
+   theme(legend.position = "bottom")+
+   # Last was plotting the court to fit the actual dimensions of a NBA court. My method for attacking this problem was to put points at the main parts of the court and move my respective lines to fit them. For example, I left the 3pt dot as a reference. NbastatR uses a 1/10 foot ratio and an NBA 3pt shot is 23.75 feet away from the top of the key. So, I placed a point at (0, 237.5) and manipulated my numbers to move the 3pt arc to match with that point. The rest were lines that were straight and just needed to have either x or y set at the right spot. 
+   #3PT Line
+  geom_path(data=data.frame(x=c(-22,-22,-22000:(-1)/1000,1:22000/1000,22,22),y=-c(47,47-169/12,41.75-sqrt(23.75^2-c(-22000:(-1)/1000,1:22000/1000)^2),47-169/12,47)+41.75)*9.95, aes(x=x, y=y))+
+   #Half court line
+   geom_path(data=data.frame(x=c(-250,250),y=c(450,450)), aes(x=x, y=y))+
+   #Side lines
+   geom_path(data=data.frame(x=c(-250,-250), y= c(-45,450)), aes(x=x, y=y))+
+    geom_path(data=data.frame(x=c(250,250), y= c(-45,450)), aes(x=x, y=y))+
+   # Baseline
+   geom_path(data=data.frame(x=c(-250,250), y = c(-45,-45)), aes(x=x, y=y))+
+   # Free Throw line and lane lines
+      geom_path(data=data.frame(x=c(-80,80), y = c(150,150)), aes(x=x, y=y))+
+    geom_path(data=data.frame(x=c(-80,-80), y = c(-45,150)), aes(x=x, y=y))+
+   geom_path(data=data.frame(x=c(80,80), y = c(-45,150)), aes(x=x, y=y))+
+   # Semi Circle at the half court line. This one needed a little scale of the x asis by multiply by 7 and moving up along the y axis by adding 450
+   geom_path(data=data.frame(x=c(-6000:(-1)/1000,1:6000/1000)*7,y=-c(sqrt(6^2-c(-6000:(-1)/1000,1:6000/1000)^2)*10)+450),aes(x=x,y=y))+
+   #Semi Circle above the free throw line. Multiplying by 11.811 from both the y and x axis gave use the correct dimensions of the semi cirlce
+   geom_path(data=data.frame(x=c(-6000:(-1)/1000,1:6000/1000)*11.811,y=c(sqrt(6^2-c(-6000:(-1)/1000,1:6000/1000)^2)*11.811)+150),aes(x=x,y=y))+
+   geom_point(aes(0,237.5), size = 0.5)+
+   geom_point(aes(0,16), size = 3.625, color = "black")+
+      geom_point(aes(0,16), size = 3.1, color = "green")+
+   geom_path(data=data.frame(x=c(-30,30), y = c(-5,-5)), aes(x=x, y=y))
+```
+## Shot Charts
+```{r, echo=FALSE}
+shotChart
+```
+
+## Key Takeaways
+
+
+- Need one more 3pt shooter.
+
+- Stay away from the top of the key/deep mid-range shots.
+
+- Balanced scoring wins games. 
+
+- Keep attacking.
+
+- Attack the right side of the court.
+
+## Explaining Each Takeaway
+
+## Need One More 3pt Shooter 
+   - With the game evolving and playing styles changing, it is essential to have guys who can space the floor. With the success rate we are having getting to the rim, adding one or two more >35% 3PT shooters will help open lanes for our team to continue to getting to the rim as well as fit the pace of play needed in today's NBA game. As we look at the different shot charts between 2012 and 2022, we are a much better all around shooting team from inside the arc, but can see little improvement from  the three point line. We are not lacking from behind the arc, but I believe adding one more player who has a high 3PT percentage can help us take the final step we need to contending.
+
+
+## Stay Away From the Top of the Key/Deep Mid-Range Shots
+  - The 2022 shot chart shows we are shooting some of our worst percentages from the top of the key and left-side mid-range jump shots. The worst shot in basketball is the long two and eliminating these shots by either stepping out to the 3pt line or attacking to get closer to the rim will be beneficial. As a team, we are shooting better from the left corner 3pt line than slightly inside the arc at that area. By stepping out as well, we are gaining one extra point from each shot for attempting the three. Lastly, both inside and outside the arc from the top of the key are some of our worst shooting percentages. Staying away from contested shots in these areas may help the offense become more efficient and overall shoot better.
+   
+   
+## Balanced Scoring Wins Games 
+   - I mentioned early adding one more 3PT specialist would help, but also adding veterans who can score on all 3 levels would be beneficial as well. Part of what made that 2002 team very good was having a good mixture of players who could do whatever they were asked. As we see from the shot charts, they were very well balanced at all spots on the floor. They didn't have one glaring weakness that teams could exploit as the year went on. When one option was taken, they were able to find ways to produce. This year we have taken a step in the right direction, but getting a player or two who aren't great at just one aspect of the game, but are very competent in all aspects, I believe would help benefit the team. Our shot chart shows we have some gaps to fill. We could use someone who is great from the left side of the court. Having the perfect mixture of specialists and all-around players is essential to trying to contend for a title. 
+   
+   
+## Keep Attacking
+   - The strength of the Timberwolves this year is their age and athleticism. We are more athletic than most teams we play and shoot very well from 2PT. It was expected that our best FG percentage would be near the hoop, but we still need to emphasize attacking the rim and not settling. Especially for players like Anthony Edwards, he is at his best when he's going downhill and getting to the rim. Even getting a foot or two inside the lane has shown to be very successful this year. It doesn't have to be a layup or a dunk. The 2022 chart shows how effective we can be as a team if we can attack and get in the lane. Unlike deep mid-range shots, we are shooting a much better percentage barely inside the lane so we should not look to abandon these shots. A layup every possession is unrealistic but incorporating more free throw line and elbow shots in our offense could help make us more efficient.
+
+## Attack the Right Side of the Court
+   - As a team overall, we are shooting a much better percentage from the right side of the court than from the left. The shot chart shows just how big of difference there is between sides. With this data we can slightly tweak the way we play to try and benefit our offense. Adding a couple sets to get shooters open on the right side of the court, or just instilling in the players minds to attack the right side as the shot clock runs down, can have a huge impact. Obviously, these players shouldn't be changing the entire way they play and stray away from open looks from the left side, but incorporating small tweaks to situations can help pay dividends in the long run. 
+
+
+## Above and Beyond
+```{r}
+#Joining Larry and Magic data into one singular variable to manipulate later. 
+LarryBird <- players_awards(players = c("Larry Bird", "Magic Johnson")) %>%
+   select("namePlayer", "nameAward", "slugSeason")
+
+
+#Cleaning up Larry Bird Data. Counting up how many awards each player one in all of their career using the count() function. Then storing these in a new column called AwardFrequency to have a cleaner name and selecting all the columns except the original n. 
+TidyLarryMagic <- LarryBird %>% 
+           group_by(namePlayer, nameAward) %>% 
+   count(nameAward) %>%
+   mutate(AwardFrequency = n) %>%
+   select(-n)
+## Plotting the graphs side by side, so viewers can decide which player was better. I used a regular ggplot with my data and the name of the award as the X. I specified the player with the color of the bars. Next I used geom_bar with the weight based on the new awardFrequency column. Finally, I labeled my axis and title and flipped the coordinates to help make the awards easier to see. 
+LarryVsMagic <- ggplot(TidyLarryMagic, aes(x= nameAward, fill = namePlayer))+
+   geom_bar(position = "dodge",aes(weight = AwardFrequency), width = 0.8)+
+   scale_fill_manual(name = "Player", values = c("Larry Bird" = "darkgreen", "Magic Johnson" = "purple"))+
+   xlab("Award") + ylab("Times Won") + ggtitle("Larry Bird vs Magic Johsnon") +
+  theme(text = element_text(size = 10))+
+   coord_flip()
+LarryVsMagic
+```
+
+## Results 
+- Too close to call in my opinion. For this project, I used an entirely different data set to try something new. I wanted to compare to legends of the game to try and show if there was any statistical differences between the two players.  This graphic helps show just how close the race between Magic Johnson and Larry Bird was. This graph also helps viewers appreciate how great both of these players were. 
+
+
